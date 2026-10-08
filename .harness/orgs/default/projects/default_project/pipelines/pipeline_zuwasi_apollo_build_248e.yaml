@@ -1,0 +1,76 @@
+pipeline:
+  id: pipeline_zuwasi_apollo_build_248e
+  name: pipeline_zuwasi_apollo_build_248e
+  inputs:
+    branch:
+      type: string
+      default: master
+  stages:
+    - name: Build and Test
+      id: build_and_test
+      runtime: cloud
+      platform:
+        os: linux
+        arch: amd64
+      clone:
+        enabled: true
+      cache:
+        enabled: true
+      build-intelligence:
+        enabled: true
+      steps:
+        - name: Setup Bazel
+          id: setup_bazel
+          template:
+            uses: setupBazel@1.0.0
+            with:
+              version: 3.7.0
+        - name: Build Cyber
+          id: build_cyber
+          timeout: 30m
+          run:
+            shell: bash
+            script: |-
+              set -euo pipefail
+
+              echo "=== Bazel Version ==="
+              bazel --version
+
+              echo "=== Building cyber module (CPU mode) ==="
+              bazel build --config=cpu //cyber/...
+        - name: Test Cyber
+          id: test_cyber
+          timeout: 30m
+          run-test:
+            shell: bash
+            script: |-
+              set -euo pipefail
+              mkdir -p .harness/reports
+
+              echo "=== Running unit tests (CPU mode) ==="
+              set +e
+              bazel test --config=cpu --config=unit_test \
+                --test_output=errors \
+                --test_tag_filters=-cpplint \
+                //cyber/... 2>&1 | tee .harness/reports/test.log
+              test_status=${PIPESTATUS[0]}
+              set -e
+
+              echo "=== Collecting test results ==="
+              if [ -d bazel-testlogs ]; then
+                counter=0
+                find bazel-testlogs -name "test.xml" -print0 | while IFS= read -r -d '' file; do
+                  cp "$file" ".harness/reports/junit_${counter}.xml"
+                  counter=$((counter + 1))
+                done
+              fi
+
+              exit $test_status
+            intelligence:
+              disabled: true
+            report:
+              type: junit
+              paths:
+                - .harness/reports/junit_*.xml
+  tags:
+    onboarding: "true"
